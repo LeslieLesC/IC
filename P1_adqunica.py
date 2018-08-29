@@ -1,8 +1,4 @@
 # -*- coding: utf-8 -*-
-"""
-
-"""
-
 
 """
 Descripción:
@@ -74,7 +70,7 @@ frec_ini_hz = 440 # frecuencia de barrido en Hz
 duration_sec_send = 1 # duracion de la señal de salida en segundos
 A = 0.5 # Amplitud de la señal de salida
 
-# duration_sec_acq = duration_sec_send + 0.2 # duracion de la adquisicón de cada paso en segundos
+duration_sec_acq = duration_sec_send + 0.2 # duracion de la adquisicón de cada paso en segundos
 
 # Inicia pyaudio
 p = pyaudio.PyAudio()
@@ -103,15 +99,14 @@ stream_input = p.open(format = pyaudio.paInt16,
 )
 
 # Defino los semaforos para sincronizar la señal y la adquisicion
-lock1 = threading.Lock() # Este lock es para asegurar que la adquisicion este siempre dentro de la señal enviada
-lock2 = threading.Lock() # Este lock es para asegurar que no se envie una nueva señal antes de haber adquirido y guardado la anterior
-lock1.acquire() # Inicializa el lock, lo pone en cero.
+# lock1 = threading.Lock() # Este lock es para asegurar que la adquisicion este siempre dentro de la señal enviada
+# lock2 = threading.Lock() # Este lock es para asegurar que no se envie una nueva señal antes de haber adquirido y guardado la anterior
+# lock1.acquire() # Inicializa el lock, lo pone en cero.
 
 # Defino el thread que envia la señal
-data_send = np.zeros([steps,chunk_send],dtype=np.float32)  # aqui guardo la señal enviada
-frecs_send = np.zeros(steps)   # aqui guardo las frecuencias
-
-def producer(steps, delta_frec):
+data_send = np.zeros(chunk_send,dtype=np.float32)  # aqui guardo la señal enviada
+f = frec_ini_hz
+def producer():
     global producer_exit
     samples = (A*np.sin(2*np.pi*np.arange(1*chunk_send)*f/fs)).astype(np.float32)
     samples = np.append(samples, np.zeros(3*chunk_send).astype(np.float32))
@@ -124,38 +119,40 @@ def producer(steps, delta_frec):
         #samples = (signal.chirp(np.arange(chunk_send)/fs, frec_ini_hz, duration_sec_send, f, method='linear', phi=0, vertex_zero=True)).astype(np.float32)
         #samples = np.append(samples, np.zeros(3*chunk_send).astype(np.float32))
 
-    data_send[i][:] = samples[0:chunk_send]
+    data_send = samples[0:chunk_send]
 
     # Se entera que se guardó el paso anterior (lock2), avisa que comienza el nuevo (lock1), y envia la señal
-    lock2.acquire()
-    lock1.release()
+    # lock2.acquire()
+    # lock1.release()
     stream_output.start_stream()
     stream_output.write(samples)
     stream_output.stop_stream()
 
+    print ('Termina Productor')
+    print (data_send)
+
     producer_exit = True
 
 # Defino el thread que adquiere la señal
-data_acq = np.zeros([steps,chunk_acq],dtype=np.int16)  # aqui guardo la señal adquirida
-
+data_acq = np.zeros(chunk_acq,dtype=np.int16)  # aqui guardo la señal adquirida
+# print (data_send)
 def consumer():
     global consumer_exit
-    j = 0
-    while(j<steps):
+    # Toma el lock, adquiere la señal y la guarda en el array
+    # lock1.acquire()
 
-        # Toma el lock, adquiere la señal y la guarda en el array
-        lock1.acquire()
-        stream_input.start_stream()
-        stream_input.read(chunk_delay)
-        data_i = stream_input.read(chunk_acq)
-        stream_input.stop_stream()
+    stream_input.start_stream()
+    stream_input.read(chunk_delay)
+    data_i = stream_input.read(chunk_acq)
 
-        data_acq[j][:] = np.frombuffer(data_i, dtype=np.int16)
+    stream_input.stop_stream()
 
-        print ('Termina Consumidor: '+ str(j))
-        print ('')
-        j = j + 1
-        lock2.release() # Avisa al productor que terminó de escribir los datos y puede comenzar con el próximo step
+    data_acq = np.frombuffer(data_i, dtype=np.int16)
+    print (data_send)
+
+    print ('Termina Consumidor')
+
+    # lock2.release() # Avisa al productor que terminó de escribir los datos y puede comenzar con el próximo step
 
     consumer_exit = True
 
@@ -164,14 +161,17 @@ producer_exit = False
 consumer_exit = False
 
 # Inicio los threads
-t1 = threading.Thread(target=producer, args=[steps,delta_frec_hz])
-t2 = threading.Thread(target=consumer, args=[])
+t1 = threading.Thread(target=producer, args=[])
+# t2 = threading.Thread(target=consumer, args=[])
 t1.start()
-t2.start()
+# t2.start()
 
-
-while(not producer_exit or not consumer_exit):
+print (data_send)
+while(not producer_exit):
     time.sleep(0.2)
+
+# while(not producer_exit or not consumer_exit):
+#     time.sleep(0.2)
 
 
 
@@ -180,9 +180,8 @@ stream_output.close()
 p.terminate()
 
 
-
 #%%
-
+#
 ### ANALISIS de la señal adquirida
 
 # Elijo la frecuencia
@@ -190,99 +189,22 @@ ind_frec = 5
 
 
 ### Muestra la serie temporal de las señales enviadas y adquiridas
-t_send = np.linspace(0,np.size(data_send,1)-1,np.size(data_send,1))/fs
-t_adq = np.linspace(0,np.size(data_acq,1)-1,np.size(data_acq,1))/fs
-
-fig = plt.figure(figsize=(14, 7), dpi=250)
-ax = fig.add_axes([.15, .15, .75, .8])
-ax1 = ax.twinx()
-ax.plot(t_send,data_send[ind_frec,:], label=u'Señal enviada: ' + str(frecs_send[ind_frec]) + ' Hz')
-ax1.plot(t_adq,data_acq[ind_frec,:],color='red', label=u'Señal adquirida')
-ax.set_xlabel('Tiempo [seg]')
-ax.set_ylabel('Amplitud [a.u.]')
-ax.legend(loc=1)
-ax1.legend(loc=4)
+t_send = np.linspace(0,np.size(data_send)-1,np.size(data_send))/fs
+t_adq = np.linspace(0,np.size(data_acq)-1,np.size(data_acq))/fs
+plt.figure()
+plt.plot(t_send,data_send, label=u'Señal enviada: %.1f'%(frec_ini_hz)) # + str(frec_ini_hz) + ' Hz')
+plt.plot(t_adq,data_acq,color='red', label=u'Señal adquirida')
+plt.xlabel('Tiempo [seg]')
+plt.ylabel('Amplitud [a.u.]')
+plt.legend()
+# fig = plt.figure(figsize=(14, 7), dpi=250)
+# ax = fig.add_axes([.15, .15, .75, .8])
+# ax1 = ax.twinx()
+# ax.plot(t_send,data_send, label=u'Señal enviada: ' + str(frec_ini_hz) + ' Hz')
+# ax1.plot(t_adq,data_acq,color='red', label=u'Señal adquirida')
+# ax.set_xlabel('Tiempo [seg]')
+# ax.set_ylabel('Amplitud [a.u.]')
+# ax.legend(loc=1)
+# ax1.legend(loc=4)
 plt.show()
-
-### Realiza la FFT de la señal enviada y adquirida
-fft_send = abs(fft.fft(data_send[ind_frec,:]))
-fft_send = fft_send[0:int(chunk_send/2+1)]
-fft_acq = abs(fft.fft(data_acq[ind_frec,:]))
-fft_acq = fft_acq[0:int(chunk_acq/2+1)]
-
-frec_send = np.linspace(0,int(chunk_send/2),int(chunk_send/2+1))
-frec_send = frec_send/duration_sec_send
-frec_acq = np.linspace(0,int(chunk_acq/2),int(chunk_acq/2+1))
-frec_acq = frec_acq/duration_sec_acq
-
-fig = plt.figure(figsize=(14, 7), dpi=250)
-ax = fig.add_axes([.1, .1, .75, .8])
-ax1 = ax.twinx()
-ax.plot(frec_send,fft_send, label='Frec enviada: ' + str(frecs_send[ind_frec]) + ' Hz')
-ax1.plot(frec_acq,fft_acq,color='red', label=u'Señal adquirida')
-ax.set_title(u'FFT de la señal enviada y adquirida')
-ax.set_xlabel('Frecuencia [Hz]')
-ax.set_ylabel('Amplitud [a.u.]')
-ax.legend(loc=1)
-ax1.legend(loc=4)
-plt.show()
-
-#%%
-
-## Estudo del retardo en caso que delta_frec = 0
-
-i_comp = 10
-
-retardos = np.array([])
-for i in range(steps):
-
-    data_acq_i = data_acq[i,:]
-    corr = np.correlate(data_acq[i_comp,:] - np.mean(data_acq[i_comp,:]),data_acq_i - np.mean(data_acq_i),mode='full')
-    pos_max = np.argmax(corr) - len(data_acq_i)
-    retardos = np.append(retardos,pos_max/fs)
-
-
-
-fig = plt.figure(figsize=(14, 7), dpi=250)
-ax = fig.add_axes([.15, .15, .8, .8])
-ax.hist(1000*retardos,bins=1000, rwidth =0.99)
-ax.set_xlabel(u'Retardo [ms]')
-ax.set_ylabel('Frecuencia [eventos]')
-ax.set_title(u'Histograma de retardo respecto a la i = ' + str(i_comp) + ' medición')
-ax1.legend(loc=4)
-plt.show()
-
-
-fig = plt.figure(figsize=(14, 7), dpi=250)
-ax = fig.add_axes([.15, .15, .8, .8])
-ax.hist(retardos*frec_ini_hz,bins=100, rwidth =0.99)
-ax.set_xlabel(u'Retardo relativo [periodo]')
-ax.set_ylabel('Frecuencia [eventos]')
-ax.set_title(u'Histograma de retardo relativo a la duración del período respecto a la i = ' + str(i_comp) + ' medición')
-ax1.legend(loc=4)
-plt.show()
-
-#%%
-plt.plot(np.transpose(data_acq))
-
-
-plt.plot(np.mean(data_acq[2:,:],axis = 0))
-
-
-
-#%%
-
-Is = 1.0*1e-12
-Vt = 26.0*1e-3
-n = 1.
-
-Vd = np.linspace(-1,1,1000)
-Id = Is*(np.exp(Vd/n/Vt)-1)
-
-Rs = 100
-Vs = 1
-Ir = Vs/Rs - Vd/Rs
-
-
-plt.plot(Vd,Id)
-plt.plot(Vd,Ir)
+#
