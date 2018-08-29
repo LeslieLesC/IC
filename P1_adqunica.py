@@ -1,28 +1,20 @@
 # -*- coding: utf-8 -*-
 """
-Created on Fri Aug 24 12:36:24 2018
 
-@author: Marco
 """
 
 
 """
 Descripción:
 ------------
-Este script realiza un barrido en frecuencias utilizando la salida y entrada de audio como emisor-receptor.
+Este script realiza una adquisición a frecuencia fija utilizando la salida y entrada de audio como emisor-receptor.
 Utiliza la libreria pyaudio para generar las señales de salida y la entrada de adquisición.
 El script lanza dos thread o hilos que se ejecutan contemporaneamente:
 uno para la generación de la señal (producer) y otro para la adquisicón (consumer).
 El script está programado para que el hilo productor envie una señal y habilite en ese momento la adquisición del hilo consumidor.
-Se utilizan dos semaforos para la interección entre threads:
-    - semaphore1: señala el comienzo de cada paso del barrido de frecuencias, y avisa al consumidor que puede comenzar la adquisición.
-    - semaphore2: señala que el hilo consumidor ya ha adquirido la señal y por lo tanto se puede comenzar la adquisición del siguiente paso del barrido.
-La señal enviada se guarda en el array data_send, donde cada fila indica un paso del barrido
-La señal adquirida se guarda en el array data_acq, donde cada fila indica un paso del barrido
+La señal enviada se guarda en el array data_send.
+La señal adquirida se guarda en el array data_acq.
 
-Al final del script se agregan dos secciones para verificar el correcto funcionamiento del script y para medir el retardo
-entre mediciones iguales (en este caso es necesario que delta_frec_hz = 0). En mi pc de escritorio el retardo entre señales medidas está dentro
-de +/- 3 ms, que puede considerarse como la variabilidad del retardo entre el envío de la señal y la adquisición.
 
 Algunas dudas:
 --------------
@@ -48,7 +40,7 @@ Notas:
 
 Parametros:
 -----------
-fs = 44100*8 # frecuencia de sampleo en Hz
+fs = 44100 # frecuencia de sampleo en Hz
 frec_ini_hz = 10 # frecuencia inicial de barrido en Hz
 frec_fin_hz = 40000 # frecuencia inicial de barrido en Hz
 steps = 50 # cantidad de pasos del barrido
@@ -78,20 +70,11 @@ pylab.rcParams.update(params)
 
 # Parametros
 fs = 44100 # frecuencia de sampleo en Hz
-frec_ini_hz = 5 # frecuencia inicial de barrido en Hz
-frec_fin_hz = 5 # frecuencia final de barrido en Hz
-steps = 10 # cantidad de pasos del barrido
-duration_sec_send = 1 # duracion de la señal de salida de cada paso en segundos
+frec_ini_hz = 440 # frecuencia de barrido en Hz
+duration_sec_send = 1 # duracion de la señal de salida en segundos
 A = 0.5 # Amplitud de la señal de salida
 
-# Parametros dependientes
-if steps == 1:
-    delta_frec_hz = 0.
-    frec_fin_hz = frec_ini_hz
-else:
-    delta_frec_hz = (frec_fin_hz-frec_ini_hz)/(steps-1) # paso del barrido en Hz
-
-duration_sec_acq = duration_sec_send + 0.2 # duracion de la adquisicón de cada paso en segundos
+# duration_sec_acq = duration_sec_send + 0.2 # duracion de la adquisicón de cada paso en segundos
 
 # Inicia pyaudio
 p = pyaudio.PyAudio()
@@ -106,7 +89,6 @@ stream_output = p.open(format=pyaudio.paFloat32,
                 rate = fs,
                 output = True,
                 #input_device_index = 4,
-
 )
 
 # Defino un buffer de lectura efectivo que tiene en cuenta el delay de la medición
@@ -131,13 +113,8 @@ frecs_send = np.zeros(steps)   # aqui guardo las frecuencias
 
 def producer(steps, delta_frec):
     global producer_exit
-    i = 0
-    while(i<steps):
-        f = frec_ini_hz + delta_frec_hz*i
-
-        ## Seno
-        samples = (A*np.sin(2*np.pi*np.arange(1*chunk_send)*f/fs)).astype(np.float32)
-        samples = np.append(samples, np.zeros(3*chunk_send).astype(np.float32))
+    samples = (A*np.sin(2*np.pi*np.arange(1*chunk_send)*f/fs)).astype(np.float32)
+    samples = np.append(samples, np.zeros(3*chunk_send).astype(np.float32))
 
         ## Cuadrada
 #        samples = A*signal.square(2*np.pi*np.arange(chunk_send)*f/fs).astype(np.float32)
@@ -147,23 +124,16 @@ def producer(steps, delta_frec):
         #samples = (signal.chirp(np.arange(chunk_send)/fs, frec_ini_hz, duration_sec_send, f, method='linear', phi=0, vertex_zero=True)).astype(np.float32)
         #samples = np.append(samples, np.zeros(3*chunk_send).astype(np.float32))
 
-        data_send[i][:] = samples[0:chunk_send]
-        frecs_send[i] = f
+    data_send[i][:] = samples[0:chunk_send]
 
-        print ('Frecuencia: ' + str(f) + ' Hz')
-        print ('Empieza Productor: '+ str(i))
-        i = i + 1
-
-        # Se entera que se guardó el paso anterior (lock2), avisa que comienza el nuevo (lock1), y envia la señal
-        lock2.acquire()
-        lock1.release()
-        stream_output.start_stream()
-        stream_output.write(samples)
-        stream_output.stop_stream()
+    # Se entera que se guardó el paso anterior (lock2), avisa que comienza el nuevo (lock1), y envia la señal
+    lock2.acquire()
+    lock1.release()
+    stream_output.start_stream()
+    stream_output.write(samples)
+    stream_output.stop_stream()
 
     producer_exit = True
-
-
 
 # Defino el thread que adquiere la señal
 data_acq = np.zeros([steps,chunk_acq],dtype=np.int16)  # aqui guardo la señal adquirida
