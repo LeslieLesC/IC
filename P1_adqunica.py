@@ -104,8 +104,9 @@ stream_input = p.open(format = pyaudio.paInt16,
 # lock1.acquire() # Inicializa el lock, lo pone en cero.
 
 # Defino el thread que envia la señal
-data_send = np.zeros(chunk_send,dtype=np.float32)  # aqui guardo la señal enviada
 f = frec_ini_hz
+data_send = np.zeros(chunk_send,dtype=np.float32)  # aqui guardo la señal enviada
+
 def producer():
     global producer_exit
     samples = (A*np.sin(2*np.pi*np.arange(1*chunk_send)*f/fs)).astype(np.float32)
@@ -148,7 +149,6 @@ def consumer():
     stream_input.stop_stream()
 
     data_acq = np.frombuffer(data_i, dtype=np.int16)
-    print (data_send)
 
     print ('Termina Consumidor')
 
@@ -162,13 +162,14 @@ consumer_exit = False
 
 # Inicio los threads
 t1 = threading.Thread(target=producer, args=[])
-# t2 = threading.Thread(target=consumer, args=[])
+t2 = threading.Thread(target=consumer, args=[])
 t1.start()
-# t2.start()
+t2.start()
 
-print (data_send)
 while(not producer_exit):
     time.sleep(0.2)
+    print (data_send)
+
 
 # while(not producer_exit or not consumer_exit):
 #     time.sleep(0.2)
